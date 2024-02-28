@@ -19,3 +19,5 @@ Options (create):
   -p, --parity <count>   Number of parity disks (default: 0)
   -s, --size <size>      Size of pool in MiB
 ```
+
+I would advise against using it in production - this is a fun little experiment, feel free to fork and adjust to your own production needs.
