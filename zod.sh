@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+#!/usr/bin/env bashabout:blank#blocked
+# Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
+# https://github.com/mchangrh/ZoD
 
 set -eo pipefail
 
@@ -14,7 +16,8 @@ Options:
 Options (create):
   -d, --data <count>     Number of data disks (default: 2)
   -p, --parity <count>   Number of parity disks (default: 0)
-  -s, --size <size>      Size of pool in MiB"
+  -c, --capacity <size>  Capacity of pool in MiB
+  -s, --size <size>      Size of each disk in MiB"
 
 if [[ $# -eq 0 ]]; then
   echo "$HELPTEXT"
@@ -61,8 +64,13 @@ while [[ $# -gt 0 ]]; do
       shift # past argument
       shift # past value
       ;;
+    -c|--capacity)
+      TOTAL_CAPACITY="$2"
+      shift # past argument
+      shift # past value
+      ;;
     -s|--size)
-      SIZE="$2"
+      DISK_SIZE="$2"
       shift # past argument
       shift # past value
       ;;
@@ -94,8 +102,11 @@ function validate() {
 }
 
 function validate_create_args() {
-  if [[ -z $SIZE ]]; then
-    echo "-s | --size Size is required"
+  if [[ -z $DISK_SIZE ]] && [[ -z $TOTAL_CAPACITY ]]; then
+    echo "-c | --capacity or -s | --size is required"
+    exit 1
+  elif [[ -n $DISK_SIZE ]] && [[ -n $TOTAL_CAPACITY ]]; then
+    echo "Both -c | --capacity and -s | --size cannot be given"
     exit 1
   fi
   # validate parity disks 0 <= x <= 3
@@ -135,9 +146,9 @@ function create_img_setup {
   # create images
   mkdir -p "$POOLDIR"
   SPACER_IMG="$POOLDIR/.spacer.img"
-  fallocate -l "$SIZE"MB "$SPACER_IMG" ||
-    echo "Switching to dd" &&
-      dd if=/dev/zero of="$SPACER_IMG" bs=1M count="$SIZE" status=none
+  fallocate -l "$DISK_SIZE"MB "$SPACER_IMG" ||
+    echo "fallocate failed, falling back to dd" &&
+      dd if=/dev/zero of="$SPACER_IMG" bs=1M count="$DISK_SIZE" status=none
   # shellcheck disable=SC2086
   mkdir -p "$POOLDIR"/mnt
   # create image, mountpoints and mount
@@ -165,19 +176,29 @@ function create() {
   elif [[ $PARITY_DISKS -gt 0 ]]; then
     RAIDZ_TYPE="raidz${PARITY_DISKS}"
   fi
-  # calculate size
-  if [[ -n $SIZE ]]; then
-    if [[ $RAIDZ_TYPE == "mirror" ]]; then
-      IMG_SIZE=$SIZE
-    else
-      IMG_SIZE=$((SIZE / DATA_DISKS))
+  # calculate size & total capacity
+
+  # mirror: total capacity = disk size
+  if [[ $RAIDZ_TYPE == "mirror" ]]; then
+    if [[ -z $DISK_SIZE ]]; then
+      DISK_SIZE=$TOTAL_CAPACITY
+    elif [[ -z $TOTAL_CAPACITY ]]; then
+      TOTAL_CAPACITY=$DISK_SIZE
+    fi
+  fi
+  # raidz: total capacity = (disk size * data disks)
+  if [[ $RAIDZ_TYPE == "raidz1" || $RAIDZ_TYPE == "raidz2" || $RAIDZ_TYPE == "raidz3" ]]; then
+    if [[ -z $DISK_SIZE ]]; then
+      DISK_SIZE=$((TOTAL_CAPACITY / DATA_DISKS))
+    elif [[ -z $TOTAL_CAPACITY ]]; then
+      TOTAL_CAPACITY=$((DISK_SIZE * DATA_DISKS))
     fi
   fi
   # ask for confirmation
   echo "Creating pool \`$POOL_NAME\`"
   echo "Using $RAIDZ_TYPE with $DATA_DISKS data disks and $PARITY_DISKS parity disks"
-  echo "Data will be across $DISK_COUNT x $IMG_SIZE MiB disk images"
-  echo "Total usable size of $SIZE MiB"
+  echo "Data will be across $DISK_COUNT x $DISK_SIZE MiB disk images"
+  echo "Total usable size of $TOTAL_CAPACITY MiB"
   echo "Images will be created in $OUTPUT_PATH/$POOL_NAME"
   read -p "Do you want to continue? [y/N] " -n 1 -r
   echo
@@ -216,6 +237,7 @@ function mount() {
   mkdir -p "$POOLDIR"/mnt
   for imagename in "$POOLDIR"/*.img; do
     MOUNT_POINT="$POOLDIR/mnt/disk-$i"
+    losetup -f "$imagename"
     touch "$MOUNT_POINT"
     mount -t none -o bind "$(losetup -j "$imagename" -lnO name)" "$MOUNT_POINT"
   done

@@ -12,12 +12,13 @@ Commands:
   mount                  Mount a disk image pool
 Options:
   -n, --name <name>      Pool name
-  -f, --folder <path>    Image path (default: current directory)
+  -f, --folder <path>    Folder path (default: current directory)
   -h, --help             Display this help and exit
 Options (create):
   -d, --data <count>     Number of data disks (default: 2)
   -p, --parity <count>   Number of parity disks (default: 0)
-  -s, --size <size>      Size of pool in MiB
+  -c, --capacity <size>  Capacity of pool in MiB
+  -s, --size <size>      Size of each disk in MiB"
 ```
 
 I would advise against using it in production - this is a fun little experiment, feel free to fork and adjust to your own production needs.
